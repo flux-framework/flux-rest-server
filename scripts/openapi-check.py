@@ -58,6 +58,11 @@ def implemented_operations(server):
     for method, table in (("get", server.ROUTES), ("post", server.POST_ROUTES)):
         for route in table:
             ops.add((route[len(prefix) :] or "/", method))
+
+    # A bare /jobs/<id> route, if implemented (e.g. DELETE_JOB_ROUTE).
+    for method, attr in (("delete", "DELETE_JOB_ROUTE"),):
+        if getattr(server, attr, None) is not None:
+            ops.add(("/jobs/{jobid}", method))
     return ops
 
 
