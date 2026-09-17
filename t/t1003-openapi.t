@@ -8,14 +8,14 @@ SPEC="${SHARNESS_TEST_SRCDIR}/../spec/v1/openapi.yaml"
 CHECK="${SHARNESS_TEST_SRCDIR}/../scripts/openapi-check.py"
 SERVER="${SHARNESS_TEST_SRCDIR}/../src/cmd/flux-rest-server.py"
 
-test_expect_success 'openapi.yaml exists' '
-	test -f "$SPEC"
-'
-
 if ! flux python -c "import yaml, openapi_spec_validator" 2>/dev/null; then
 	skip_all="openapi-spec-validator and PyYAML required for spec validation"
 	test_done
 fi
+
+test_expect_success 'openapi.yaml exists' '
+	test -f "$SPEC"
+'
 
 # Run under `flux python` so the checker can import the server module, which
 # imports flux. No broker is required.
