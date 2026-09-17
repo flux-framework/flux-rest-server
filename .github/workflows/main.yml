@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
@@ -19,18 +19,18 @@ jobs:
   spelling:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
     - name: Check Spelling
-      uses: crate-ci/typos@v1.36.0
+      uses: crate-ci/typos@v1.50.0
 
   python-format:
     name: code formatting
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7.0.0
       with:
         python-version: "3.10"
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
@@ -43,10 +43,10 @@ jobs:
     name: validate openapi spec
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7.0.0
       with:
         python-version: "3.10"
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
     # Conformance-only check: no flux required, so no server source argument.
     # The route-coverage cross-check needs flux and runs in the testsuite.
     - name: install spec validation deps
@@ -83,7 +83,7 @@ jobs:
     name: ${{ matrix.name }}
     steps:
     - name: checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
