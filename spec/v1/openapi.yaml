@@ -83,6 +83,42 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "503": { $ref: "#/components/responses/FluxUnavailable" }
 
+  /jobs/{jobid}:
+    parameters:
+      - name: jobid
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/JobId" }
+    delete:
+      operationId: cancelJob
+      summary: Cancel a job
+      description: Request cancellation. Asynchronous -- does not wait for or confirm the job has actually stopped.
+      parameters:
+        - name: reason
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional human-readable reason, recorded on the job's event log.
+      responses:
+        "202":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { $ref: "#/components/schemas/JobId" }
+                  status: { type: string, const: "cancel requested" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Job already inactive; nothing to cancel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/FluxUnavailable" }
+
 components:
   responses:
     BadRequest:
@@ -92,6 +128,11 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     FluxUnavailable:
       description: The Flux broker is unreachable.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such job.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

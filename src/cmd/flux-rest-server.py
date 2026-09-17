@@ -19,6 +19,7 @@ import pwd
 import socket
 import struct
 import sys
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import flux
@@ -143,6 +144,43 @@ POST_ROUTES = {
 }
 
 
+def _parse_job_path(path):
+    """Parse a bare /jobs/<id> from a request path.
+
+    Returns the jobid, or None if path doesn't match this shape.
+    Raises ValueError if the id portion isn't a valid Flux jobid.
+    """
+    prefix = f"{_PREFIX}/jobs/"
+    if not path.startswith(prefix):
+        return None
+    jobid_str = path[len(prefix) :]
+    if not jobid_str or "/" in jobid_str:
+        return None
+    return flux.job.JobID(jobid_str)  # raises ValueError if malformed
+
+
+def _jobs_cancel(jobid, reason):
+    """DELETE /api/v1/jobs/<id>: request cancellation of a job."""
+    h = _flux()
+    try:
+        flux.job.cancel(h, jobid, reason=reason)
+    except FileNotFoundError as err:
+        # flux.job.cancel() raises this identical exception for a
+        # nonexistent job and an already-inactive job. A genuinely
+        # unreachable broker is already caught by _flux() above,
+        # propagating to do_DELETE's OSError -> 503 handling.
+        if "inactive" in str(err):
+            return 409, {
+                "error": f"job {jobid.f58plain} is already inactive, cannot cancel"
+            }
+        return 404, {"error": f"no such job: {jobid.f58plain}"}
+
+    return 202, {"id": jobid.f58plain, "status": "cancel requested"}
+
+
+DELETE_JOB_ROUTE = _jobs_cancel  # DELETE /jobs/<id>
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_NAME
     verbose = False
@@ -205,6 +243,41 @@ class Handler(BaseHTTPRequestHandler):
             # on the wire or a dropped connection.
             self.log_error("unhandled exception in %s: %s", path, err)
             status, resp = 500, {"error": "internal error"}
+        self._send(status, resp, headers)
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        # Accept any JobID()-parseable form on input (e.g. a job id
+        # copied verbatim from `flux jobs` output, which defaults to the
+        # non-ASCII "fancy" F58 form and would arrive percent-encoded) --
+        # even though this server always emits the ASCII f58plain form
+        # itself. Lenient on input, consistent on output.
+        path = urllib.parse.unquote(parsed.path)
+        reason = urllib.parse.parse_qs(parsed.query).get("reason", [None])[0]
+
+        try:
+            jobid = _parse_job_path(path)
+        except ValueError as err:
+            self._send(400, {"error": str(err)})
+            return
+        if jobid is None:
+            self._send(404, {"error": "not found", "path": path})
+            return
+
+        try:
+            result = DELETE_JOB_ROUTE(jobid, reason)
+            status, resp = result[0], result[1]
+            headers = result[2] if len(result) > 2 else None
+        except OSError as err:  # Flux not reachable
+            status, resp = 503, {"error": "flux unavailable", "detail": str(err)}
+            headers = None
+        except Exception as err:
+            # Unanticipated bug: fail safely with a clean 500 instead of
+            # letting BaseHTTPRequestHandler turn it into a raw traceback
+            # on the wire or a dropped connection.
+            self.log_error("unhandled exception in %s: %s", path, err)
+            status, resp = 500, {"error": "internal error"}
+            headers = None
         self._send(status, resp, headers)
 
     def _send(self, status, body, headers=None):

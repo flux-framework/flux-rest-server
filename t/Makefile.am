@@ -14,7 +14,8 @@ TESTS = \
 	t1000-basic.t \
 	t1001-security.t \
 	t1002-job-submit.t \
-	t1003-openapi.t
+	t1003-openapi.t \
+	t1004-jobs-cancel.t
 
 EXTRA_DIST = \
 	$(TESTS) \
