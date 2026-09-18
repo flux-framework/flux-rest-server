@@ -47,7 +47,7 @@ test_expect_success 'owner can connect' '
 # 0600 file mode -- this specifically exercises the application-level
 # SO_PEERCRED check rather than the socket file permissions.
 test_expect_success SUDO,OTHERUSER 'connection from another uid is rejected' '
-	test_must_fail $SUDO -u $other_user curl -sf \
+	test_must_fail $SUDO -u $other_user curl -v -sf \
 	    --unix-socket ${REST_SOCKET} http://localhost/api/v1/health
 '
 
