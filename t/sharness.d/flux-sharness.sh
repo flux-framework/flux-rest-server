@@ -1,4 +1,16 @@
 # Minimal flux-sharness for flux-rest-server
+#
+# This is a reduced version of flux-core's t/sharness.d/flux-sharness.sh,
+# keeping only test_under_flux() and dropping the machinery this project has
+# no use for (personality modes and their rc paths, bootstrap config mocking,
+# module list checks, test_on_rank, ...), much of which refers to files that
+# only exist in the flux-core tree.
+#
+# The tradeoff is that behavior omitted here is easy to miss: options not
+# forwarded to the re-exec'ed script, and broker options not set, are silently
+# absent rather than an error.  When something in the testsuite behaves
+# differently than it does in flux-core, diff this against the upstream file
+# before looking further afield.
 
 export FLUX_EXEC_PATH_PREPEND="${SHARNESS_TEST_SRCDIR}/scripts":"${SHARNESS_TEST_SRCDIR}/../src/cmd"
 
@@ -27,10 +39,11 @@ test_under_flux() {
     if test -n "$SHARNESS_TEST_DIRECTORY"; then
         cd $SHARNESS_TEST_DIRECTORY
     fi
+    logopts="-o -Slog-filename=${log_file} -Slog-forward-level=7"
 
     TEST_UNDER_FLUX_ACTIVE=t \
       exec flux start --test-size=${size} \
-          -o -Slog-filename=${log_file} \
+          ${logopts} \
           "sh $0 ${flags}"
 }
 
