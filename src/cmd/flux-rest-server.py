@@ -13,6 +13,7 @@
 
 import argparse
 import errno
+import functools
 import json
 import os
 import pwd
@@ -191,6 +192,33 @@ def _jobs_cancel(jobid, reason):
 DELETE_JOB_ROUTE = _jobs_cancel  # DELETE /jobs/<id>
 
 
+def _jobs_state(jobid):
+    """GET /api/v1/jobs/<id>: full job info.
+
+    The job record as rendered by flux-core's JobInfo.to_dict(). This is
+    a post-processed version of the raw RFC 43 job-list payload: state
+    and result are strings rather than integer bitmasks, and unset
+    fields are omitted rather than sent empty. "id" is overridden to
+    the f58plain form, and the redundant "jobid" key is dropped.
+    """
+    h = _flux()
+    try:
+        info = flux.job.list.job_list_id(h, jobid, attrs=["all"]).get_jobinfo()
+    except FileNotFoundError:
+        return 404, {"error": f"no such job: {jobid.f58plain}"}
+
+    body = info.to_dict()
+    # Some JSON parsers can't handle a raw job id at full precision
+    # (flux-core#6171), so we use the f58plain string instead, and
+    # drop the now-redundant "jobid" key.
+    body["id"] = jobid.f58plain
+    body.pop("jobid", None)
+    return 200, body
+
+
+GET_JOB_ROUTE = _jobs_state  # GET /jobs/<id>
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_NAME
     verbose = False
@@ -212,8 +240,16 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         route = ROUTES.get(path)
         if route is None:
-            self._send(404, {"error": "not found", "path": path})
-            return
+            try:
+                jobid = _parse_job_path(path)
+            except ValueError as err:
+                self._send(400, {"error": str(err)})
+                return
+            if jobid is None:
+                self._send(404, {"error": "not found", "path": path})
+                return
+            route = functools.partial(GET_JOB_ROUTE, jobid)
+
         try:
             status, body = route()
         except OSError as err:  # Flux not reachable
