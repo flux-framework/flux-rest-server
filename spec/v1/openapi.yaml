@@ -92,6 +92,29 @@ paths:
         in: path
         required: true
         schema: { $ref: "#/components/schemas/JobId" }
+    get:
+      operationId: getJob
+      summary: Get full job info
+      description: >
+        The job record as rendered by flux-core's JobInfo.to_dict(). This
+        is a post-processed version of the raw RFC 43 job-list payload:
+        state and result are strings rather than integer bitmasks, and
+        unset fields are omitted rather than sent empty.
+      responses:
+        "200":
+          description: Job info
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, state]
+                properties:
+                  id: { $ref: "#/components/schemas/JobId" }
+                  state: { type: string }
+                additionalProperties: true
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/FluxUnavailable" }
     delete:
       operationId: cancelJob
       summary: Cancel a job
