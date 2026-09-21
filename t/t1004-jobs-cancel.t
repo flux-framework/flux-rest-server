@@ -70,6 +70,16 @@ test_expect_success 'malformed job id returns 400' '
 	test "$(cat badid.code)" = "400"
 '
 
+test_expect_success 'a double-encoded API prefix is rejected, not routed' '
+	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"sleep\", \"300\"]}" | jq -r .id) &&
+	$CURL -s -o encoded.out -w "%{http_code}" --path-as-is -X DELETE \
+	    "http://localhost/api%2Fv1/jobs/$jobid" >encoded.code &&
+	test "$(cat encoded.code)" = "404" &&
+	flux cancel $jobid
+'
+
 test_expect_success 'job ids are returned in f58plain (ASCII) form' '
 	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
 	    -H "Content-Type: application/json" -d "{\"command\": [\"true\"]}" | jq -r .id) &&

@@ -147,13 +147,17 @@ POST_ROUTES = {
 def _parse_job_path(path):
     """Parse a bare /jobs/<id> from a request path.
 
+    path must be the raw, still-percent-encoded path -- only the id
+    segment is decoded here, not the prefix, so routing never depends
+    on what a client did or didn't encode.
+
     Returns the jobid, or None if path doesn't match this shape.
     Raises ValueError if the id portion isn't a valid Flux jobid.
     """
     prefix = f"{_PREFIX}/jobs/"
     if not path.startswith(prefix):
         return None
-    jobid_str = path[len(prefix) :]
+    jobid_str = urllib.parse.unquote(path[len(prefix) :])
     if not jobid_str or "/" in jobid_str:
         return None
     return flux.job.JobID(jobid_str)  # raises ValueError if malformed
@@ -247,12 +251,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         parsed = urllib.parse.urlsplit(self.path)
-        # Accept any JobID()-parseable form on input (e.g. a job id
-        # copied verbatim from `flux jobs` output, which defaults to the
-        # non-ASCII "fancy" F58 form and would arrive percent-encoded) --
-        # even though this server always emits the ASCII f58plain form
-        # itself. Lenient on input, consistent on output.
-        path = urllib.parse.unquote(parsed.path)
+        # The raw path is matched against the API prefix as-is (see
+        # _parse_job_path) -- only the job id segment is decoded, so
+        # routing never depends on what a client did or didn't encode.
+        # This also happens to accept a job id copied verbatim from
+        # `flux jobs` output, which defaults to the non-ASCII "fancy"
+        # F58 form and would arrive percent-encoded.
+        path = parsed.path
         reason = urllib.parse.parse_qs(parsed.query).get("reason", [None])[0]
 
         try:
