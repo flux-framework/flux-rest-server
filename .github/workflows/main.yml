@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
@@ -19,18 +19,18 @@ jobs:
   spelling:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
     - name: Check Spelling
-      uses: crate-ci/typos@v1.36.0
+      uses: crate-ci/typos@v1.50.0
 
   python-format:
     name: code formatting
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7.0.0
       with:
         python-version: "3.10"
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
@@ -43,13 +43,59 @@ jobs:
     name: validate openapi spec
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7.0.0
       with:
         python-version: "3.10"
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7.0.1
     # Conformance-only check: no flux required, so no server source argument.
     # The route-coverage cross-check needs flux and runs in the testsuite.
     - name: install spec validation deps
       run: pip install pyyaml openapi-spec-validator
     - name: validate openapi spec
       run: python3 scripts/openapi-check.py spec/v1/openapi.yaml
+
+  ci-checks:
+    runs-on: ubuntu-latest
+    env:
+      FLUX_TEST_TIMEOUT: 300
+      FLUX_TESTS_LOGFILE: t
+      debug: t
+      TAP_DRIVER_QUIET: 1
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+        - name: "el8"
+          image: "el8"
+          env:
+            chain_lint: t
+        - name: "noble"
+          image: "noble"
+          env: {}
+        - name: "el10"
+          image: "el10"
+          env:
+            DISTCHECK: t
+        - name: "fedora40"
+          image: "fedora40"
+          env: {}
+      fail-fast: false
+    name: ${{ matrix.name }}
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+
+    - name: docker-run-checks
+      env: ${{ matrix.env }}
+      run: >
+        ./src/test/docker/docker-run-checks.sh
+        -j $(nproc)
+        -i ${{ matrix.image }}
+        --
+
+    - name: annotate errors
+      if: failure() || cancelled()
+      run: src/test/checks-annotate.sh
