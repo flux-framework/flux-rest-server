@@ -9,6 +9,7 @@
 #  The script is otherwise influenced by the following environment variables:
 #
 #  JOBS=N        Argument for make's -j option, default=2
+#  COVERAGE      Collect Python coverage during `make check` if set
 #  DISTCHECK     Run `make distcheck` if set
 #  RECHECK       Run `make recheck` if `make check` fails the first time
 #  TEST_INSTALL  Run `make check` against the installed flux-rest-server
@@ -28,6 +29,7 @@ JOBS=${JOBS:-2}
 MAKE="make --output-sync=target --no-print-directory"
 MAKECMDS="${MAKE} -j ${JOBS}"
 CHECKCMDS="${MAKE} -j ${JOBS} ${DISTCHECK:+dist}check"
+POSTCHECKCMDS=":"
 
 # Force git to update the shallow clone and include tags so git-describe works
 checks_group "git fetch tags" "git fetch --unshallow --tags" \
@@ -36,8 +38,72 @@ checks_group "git fetch tags" "git fetch --unshallow --tags" \
 checks_group_start "build setup"
 ulimit -c unlimited
 
+# Collect Python coverage.  Everything this project ships is Python, so there
+# is no --enable-code-coverage/lcov half here as in the C flux projects.
+#
+# The subprocesses that need measuring (`flux rest-server`, the _ensure helper)
+# are started by the testsuite, not by us, so coverage has to start itself in
+# every interpreter: COVERAGE_PROCESS_START plus a customize module that calls
+# coverage.process_startup().
+#
+# The other flux projects install that module as usercustomize.py under
+# site.USER_SITE, but that does not work here: sharness resets HOME to the
+# per-test trash directory, which moves USER_SITE with it, so the module is
+# never found.  Put it on PYTHONPATH instead, which survives the HOME change.
+# It is named usercustomize.py rather than sitecustomize.py deliberately -- the
+# Debian/Ubuntu images ship a real /usr/lib/python3*/sitecustomize.py that a
+# PYTHONPATH entry of the same name would shadow.
+#
+# PYTHONPATH also needs the directory coverage itself was installed into: the
+# scripts run under flux-core's interpreter via `flux python`, which is not
+# necessarily the one pip installed coverage for.
+if test "$COVERAGE" = "t"; then
+	export PATH=~/.local/bin/:$PATH
+
+	# install coverage via pip if necessary
+	coverage -h >/dev/null 2>&1 \
+	    || python3 -m pip install --user coverage \
+	    || python3 -m pip install --user --break-system-packages coverage
+
+	COVERAGE_SITEDIR=$(pwd)/coverage-site
+	mkdir -p ${COVERAGE_SITEDIR}
+	cat <<-EOF >${COVERAGE_SITEDIR}/usercustomize.py
+	try:
+	    import coverage
+	    coverage.process_startup()
+	except ImportError:
+	    pass
+	EOF
+
+	# Directory coverage is importable from, to add to PYTHONPATH:
+	COVERAGE_PKGDIR=$(python3 -c \
+	    'import coverage, os; print(os.path.dirname(os.path.dirname(coverage.__file__)))')
+
+	# relative_files=True keeps paths in the report relative to the source
+	# tree, so they match for codecov regardless of where the build ran.
+	cat <<-EOF >coverage.rc
+	[run]
+	data_file = $(pwd)/.coverage
+	include = $(pwd)/src/*
+	parallel = True
+	relative_files = True
+	EOF
+
+	rm -f .coverage .coverage.* coverage.xml
+
+	CHECKCMDS="\
+	PYTHONPATH=${COVERAGE_SITEDIR}:${COVERAGE_PKGDIR} \
+	COVERAGE_PROCESS_START=$(pwd)/coverage.rc \
+	${MAKE} -j ${JOBS} check"
+	POSTCHECKCMDS="\
+	coverage combine .coverage* && \
+	coverage html && \
+	coverage xml && \
+	chmod 444 coverage.xml && \
+	(coverage report || :)"
+
 # Use make install for TEST_INSTALL:
-if test "$TEST_INSTALL" = "t"; then
+elif test "$TEST_INSTALL" = "t"; then
     ARGS="$ARGS --prefix=/usr --sysconfdir=/etc"
     CHECKCMDS="sudo make install && ${MAKE} -j $JOBS check"
 fi
@@ -94,6 +160,13 @@ if test "$RECHECK" = "t" -a $RC -ne 0; then
   else
     printf "::warning::recheck requested but no tests in ./t were run\n"
   fi
+fi
+
+# Generate the coverage report (a no-op unless COVERAGE=t).  Only on success:
+# after a failure the run is incomplete, so the numbers would be misleading.
+if test $RC -eq 0; then
+  checks_group "${POSTCHECKCMDS}" "${POSTCHECKCMDS}"
+  RC=$?
 fi
 
 exit $RC

@@ -79,6 +79,11 @@ jobs:
         - name: "fedora40"
           image: "fedora40"
           env: {}
+        - name: "coverage"
+          image: "noble"
+          coverage: true
+          env:
+            COVERAGE: t
       fail-fast: false
     name: ${{ matrix.name }}
     steps:
@@ -95,6 +100,13 @@ jobs:
         -j $(nproc)
         -i ${{ matrix.image }}
         --
+
+    - name: coverage report
+      if: success() && matrix.coverage
+      uses: codecov/codecov-action@v7.0.0
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
 
     - name: annotate errors
       if: failure() || cancelled()

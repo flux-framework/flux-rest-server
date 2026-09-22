@@ -162,6 +162,7 @@ else
         -e LDFLAGS \
         -e CFLAGS \
         -e CPPFLAGS \
+        -e COVERAGE \
         -e DISTCHECK \
         -e RECHECK \
         -e TEST_INSTALL \

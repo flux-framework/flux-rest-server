@@ -16,6 +16,7 @@ import errno
 import json
 import os
 import pwd
+import signal
 import socket
 import struct
 import sys
@@ -342,6 +343,13 @@ class _Server(HTTPServer):
     def serve(self):
         """Serve requests until interrupted, or (if idle_timeout is set) until
         idle_timeout seconds elapse with no new connection."""
+
+        # Terminate on SIGTERM by raising KeyboardInterrupt
+        def _terminate(_signum, _frame):
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGTERM, _terminate)
+
         if self.idle_timeout is None:
             self.serve_forever()
             return
