@@ -7,7 +7,7 @@ test_description='Test connection access control: socket mode and SO_PEERCRED'
 test_under_flux 1
 
 REST_SOCKET="$(flux getattr rundir)/rest"
-CURL="curl --unix-socket ${REST_SOCKET}"
+CURL="curl ${CURL_TIMEOUT_ARGS} --unix-socket ${REST_SOCKET}"
 
 # A user whose uid differs from the current one, for negative checks.
 if test "$(id -u)" = "0"; then other_user=nobody; else other_user=root; fi
@@ -46,9 +46,14 @@ test_expect_success 'owner can connect' '
 # A different uid must be refused.  When that uid is root -- which bypasses the
 # 0600 file mode -- this specifically exercises the application-level
 # SO_PEERCRED check rather than the socket file permissions.
-test_expect_success SUDO,OTHERUSER 'connection from another uid is rejected' '
-	test_must_fail $SUDO -u $other_user curl -v -sf \
-	    --unix-socket ${REST_SOCKET} http://localhost/api/v1/health
+test_expect_success SUDO,OTHERUSER 'connection from another uid gets 403' '
+	$SUDO -u $other_user curl ${CURL_TIMEOUT_ARGS} -v -s \
+	    -w "%{http_code}\n" \
+	    --unix-socket ${REST_SOCKET} http://localhost/api/v1/health \
+	    >forbidden.out &&
+	test "$(tail -1 forbidden.out)" = "403" &&
+	head -1 forbidden.out >forbidden.body &&
+	jq -e ".error == \"forbidden\"" forbidden.body
 '
 
 # Refuse a configuration that would create an owner-only socket the named user

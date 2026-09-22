@@ -7,7 +7,7 @@ test_description='Test basic operation and endpoints with server logging'
 test_under_flux 1
 
 REST_SOCKET="$(flux getattr rundir)/rest"
-CURL="curl --unix-socket ${REST_SOCKET}"
+CURL="curl ${CURL_TIMEOUT_ARGS} --unix-socket ${REST_SOCKET}"
 
 # Start the server as a background process.
 # Return only after the server is responding to requests
@@ -44,7 +44,7 @@ test_expect_success 'root endpoint returns instance info' '
 '
 
 test_expect_success 'unknown endpoint returns 404' '
-	test_must_fail $CURL -f \
+	test_expect_code 22 $CURL -f \
 	    http://localhost/api/v1/nonexistent 2>notfound.err &&
 	grep 404 notfound.err
 '
@@ -59,15 +59,15 @@ test_expect_success 'idle-timeout exits the server after inactivity' '
 	    --socket "$idlesock" --idle-timeout=1s &&
 	tries=50 &&
 	while test $tries -gt 0; do
-		curl -sf --unix-socket "$idlesock" \
+		curl ${CURL_TIMEOUT_ARGS} -sf --unix-socket "$idlesock" \
 		    http://localhost/api/v1/health >/dev/null 2>&1 && break
 		tries=$((tries-1))
 		sleep 0.1
 	done &&
 	test $tries -gt 0 &&
 	sleep 3 &&
-	test_must_fail curl -sf --unix-socket "$idlesock" \
-	    http://localhost/api/v1/health
+	test_expect_code 7 curl ${CURL_TIMEOUT_ARGS} -sf \
+	    --unix-socket "$idlesock" http://localhost/api/v1/health
 '
 
 test_expect_success 'idle-timeout rejects an invalid duration' '

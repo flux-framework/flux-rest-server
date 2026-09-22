@@ -36,6 +36,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/InstanceInfo" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/FluxUnavailable" }
 
   /health:
@@ -52,6 +53,7 @@ paths:
                 type: object
                 properties:
                   status: { type: string, const: ok }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /jobs:
     post:
@@ -81,6 +83,7 @@ paths:
                 properties:
                   id: { $ref: "#/components/schemas/JobId" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "503": { $ref: "#/components/responses/FluxUnavailable" }
 
   /jobs/{jobid}:
@@ -111,6 +114,7 @@ paths:
                   id: { $ref: "#/components/schemas/JobId" }
                   status: { type: string, const: "cancel requested" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: Job already inactive; nothing to cancel.
@@ -121,6 +125,13 @@ paths:
 
 components:
   responses:
+    Forbidden:
+      description: >
+        The connecting peer's uid is not permitted (SO_PEERCRED). Refused at
+        the connection level, so it can be returned for any operation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     BadRequest:
       description: Malformed request or invalid jobspec.
       content:
