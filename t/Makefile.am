@@ -16,7 +16,8 @@ TESTS = \
 	t1002-job-submit.t \
 	t1003-openapi.t \
 	t1004-jobs-cancel.t \
-	t1006-shutdown.t
+	t1006-shutdown.t \
+	t1007-timeout.t
 
 EXTRA_DIST = \
 	$(TESTS) \

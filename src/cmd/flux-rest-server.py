@@ -195,6 +195,19 @@ class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_NAME
     verbose = False
 
+    # Per-connection socket timeout. Without it a client that connects and
+    # never completes a request blocks handle_one_request() in
+    # rfile.readline() forever, and this single-threaded server silently stops
+    # answering everyone else. StreamRequestHandler.setup() applies it with
+    # settimeout(), and handle_one_request() catches the resulting
+    # TimeoutError, logs, and closes the connection.
+    #
+    # It bounds only how long a client may take to send or receive; no timer
+    # runs while a route is off waiting on Flux, so a slow RPC does not trip
+    # it. N.B. unrelated to _Server.timeout, which serve() uses for
+    # --idle-timeout: same attribute name, different object, different meaning.
+    timeout = 30
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         route = ROUTES.get(path)
