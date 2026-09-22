@@ -7,7 +7,7 @@ test_description='Test POST /api/v1/jobs (basic submit)'
 test_under_flux 1
 
 REST_SOCKET="$(flux getattr rundir)/rest"
-CURL="curl --unix-socket ${REST_SOCKET}"
+CURL="curl ${CURL_TIMEOUT_ARGS} --unix-socket ${REST_SOCKET}"
 
 # Same helper as t1000-basic.t: start the server in the background, return
 # only once it is responding to requests.
@@ -165,7 +165,7 @@ test_expect_success 'invalid queue name returns 400, not 503' '
 '
 
 test_expect_success 'POST to an unknown path returns 404' '
-	test_must_fail $CURL -f -X POST \
+	test_expect_code 22 $CURL -f -X POST \
 	    http://localhost/api/v1/nonexistent 2>unknown.err &&
 	grep 404 unknown.err
 '

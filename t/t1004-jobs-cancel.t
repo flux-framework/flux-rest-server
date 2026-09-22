@@ -7,7 +7,7 @@ test_description='Test DELETE /api/v1/jobs/<id>'
 test_under_flux 1
 
 REST_SOCKET="$(flux getattr rundir)/rest"
-CURL="curl --unix-socket ${REST_SOCKET}"
+CURL="curl ${CURL_TIMEOUT_ARGS} --unix-socket ${REST_SOCKET}"
 
 start_server() {
 	local tries=50
