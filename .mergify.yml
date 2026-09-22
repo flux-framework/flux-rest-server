@@ -1,0 +1,45 @@
+queue_rules:
+  - name: default
+    batch_size: 1
+    queue_conditions:
+      - base=main
+      - label="merge-when-passing"
+      - label!="work-in-progress"
+      - "approved-reviews-by=@flux-framework/flux-rest-server-maintainers"
+      - "#approved-reviews-by>0"
+      - "#changes-requested-reviews-by=0"
+      - -title~=^\[*[Ww][Ii][Pp]
+    merge_conditions:
+      - base=main
+      - label="merge-when-passing"
+      - label!="work-in-progress"
+      - "approved-reviews-by=@flux-framework/flux-rest-server-maintainers"
+      - "#approved-reviews-by>0"
+      - "#changes-requested-reviews-by=0"
+      - -title~=^\[*[Ww][Ii][Pp]
+    # Semi-linear history: rebase the PR onto main, then merge it with a
+    # merge commit that marks the PR boundary.
+    merge_method: merge
+    update_method: rebase
+
+# Avoid temporary branches created by mergify for parallel checks.
+# These do not work with the pr-validator since the temporary PR
+# branch is updated with a merge commit.
+merge_queue:
+  max_parallel_checks: 1
+
+pull_request_rules:
+  - name: queue pull requests matching queue_conditions
+    conditions: []
+    actions:
+      queue:
+  - name: remove outdated approved reviews
+    conditions:
+      - author!=@core
+    actions:
+      dismiss_reviews:
+        approved: true
+        changes_requested: false
+        message: |
+          Approving reviews have been dismissed because this pull request
+          was updated.
