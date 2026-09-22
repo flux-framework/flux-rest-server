@@ -30,6 +30,14 @@ debbuild/
 # Tests
 .pytest_cache/
 
+# Coverage
+.coverage
+.coverage.*
+coverage.rc
+coverage.xml
+coverage-site/
+htmlcov/
+
 # Editor files
 *.swp
 *~
