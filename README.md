@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/flux-framework/flux-rest-server/branch/main/graph/badge.svg)](https://codecov.io/gh/flux-framework/flux-rest-server)
+
 # flux-rest-server
 
 A proof of concept HTTP front-end for Flux that demonstrates a
