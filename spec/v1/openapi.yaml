@@ -129,6 +129,8 @@ components:
       description: >
         The connecting peer's uid is not permitted (SO_PEERCRED). Refused at
         the connection level, so it can be returned for any operation.
+        Also returned when the requesting user does not own the resource
+        being acted on (e.g. canceling another user's job).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

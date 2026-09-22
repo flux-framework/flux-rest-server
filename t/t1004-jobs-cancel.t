@@ -49,6 +49,29 @@ test_expect_success 'cancel without a reason still works' '
 	test "$(cat cancel2.code)" = "202"
 '
 
+# Regression guard for #18: canceling another user's job should return
+# a client error, forbidden.
+test_expect_success 'canceling another users job returns 403' '
+	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"sleep\", \"300\"]}" | jq -r .id) &&
+	flux job wait-event -t 10 $jobid start >/dev/null &&
+	flux exec --rank=0 --bg --label=otheruser-server \
+	    sh -c "FLUX_HANDLE_USERID=9999 FLUX_HANDLE_ROLEMASK=0x2 \
+	           flux rest-server --socket guest.sock --verbose" &&
+	test_when_finished "flux sproc kill 15 otheruser-server" &&
+	tries=50 &&
+	while test $tries -gt 0; do
+		test -S guest.sock && break
+		tries=$(($tries-1))
+		sleep 0.1
+	done &&
+	$CURL -s --unix-socket guest.sock -o forbidden.out -w "%{http_code}" \
+	    -X DELETE "http://localhost/api/v1/jobs/$jobid" >forbidden.code &&
+	test "$(cat forbidden.code)" = "403" &&
+	flux cancel $jobid
+'
+
 test_expect_success 'canceling an already-inactive job returns 409, not 404' '
 	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
 	    -H "Content-Type: application/json" -d "{\"command\": [\"true\"]}" | jq -r .id) &&
