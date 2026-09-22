@@ -20,6 +20,7 @@ import signal
 import socket
 import struct
 import sys
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -323,12 +324,54 @@ class Handler(BaseHTTPRequestHandler):
         self._log(sys.stderr, format, *args)
 
 
+# A refused connection is held open briefly before being closed, so that the
+# client has a chance to read the response; see _Server._refuse().  A client
+# needs microseconds for this, so the linger is generous, and the cap bounds
+# what a peer that connects and never closes can pin down.
+_REFUSE_LINGER = 1.0  # seconds held before the deferred close
+_REFUSE_MAX = 16  # refused connections held at once
+
+
+def _close(sock):
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
+def _forbidden_response():
+    """Build the 403 sent to a peer whose uid is not permitted.
+
+    It is written before the request line is read, so the client's HTTP
+    version is unknown and HTTP/1.0 is the safe choice.  Answering without
+    having parsed a request is expected of a server (RFC 9112 section 2.2).
+    """
+    body = (
+        json.dumps(
+            {"error": "forbidden", "detail": "peer uid is not permitted to connect"}
+        )
+        + "\n"
+    ).encode()
+    return (
+        "HTTP/1.0 403 Forbidden\r\n"
+        f"Server: {SERVER_NAME}\r\n"
+        "Content-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode() + body
+
+
+_FORBIDDEN = _forbidden_response()
+
+
 class _Server(HTTPServer):
     """HTTPServer that, on a unix socket, accepts connections only from a
     permitted uid, verified via SO_PEERCRED. This makes the access policy
     explicit in the application, independent of (and robust to a misconfigured)
     socket file mode. allowed_peer_uid is None for TCP, where peer credentials
-    are unavailable, and the check is skipped.
+    are unavailable, and the check is skipped. A connection from any other uid
+    is answered with 403 and closed in stages; see _refuse().
 
     With idle_timeout set (seconds), serve() exits after that long with no new
     connection. Under socket activation systemd re-activates on the next one."""
@@ -336,6 +379,10 @@ class _Server(HTTPServer):
     allowed_peer_uid = None
     idle_timeout = None
     _idle = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._refused = []  # [(socket, deadline)] awaiting a deferred close
 
     def handle_timeout(self):
         self._idle = True
@@ -360,6 +407,54 @@ class _Server(HTTPServer):
             f"flux-rest-server: no connection for {self.idle_timeout}s, exiting\n"
         )
 
+    def _refuse(self, request):
+        """Answer 403, then leave the connection for _reap() to close.
+
+        Closing it here would tear the socket down while the client is still
+        checking whether its connect() completed. The client then sees a
+        hangup at connect time and discards the response it was just sent,
+        and curl < 7.88.0 spins until its connect timeout rather than failing
+        (issue #22). RFC 9112 section 9.6 prescribes closing in stages for
+        this reason: half-close, let the client finish, then close.
+
+        The check runs at accept time rather than after the request is parsed
+        (where _send() would serve and no deferral would be needed), so that
+        an unpermitted peer never has its input parsed and cannot occupy this
+        single-threaded serve loop while it dawdles.
+        """
+        try:
+            request.sendall(_FORBIDDEN)
+            request.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        self._refused.append((request, time.monotonic() + _REFUSE_LINGER))
+        # Bound what a peer that never closes can pin down.
+        while len(self._refused) > _REFUSE_MAX:
+            _close(self._refused.pop(0)[0])
+
+    def _reap(self):
+        """Close refused connections whose grace period has elapsed."""
+        now = time.monotonic()
+        for sock, deadline in self._refused:
+            if now >= deadline:
+                _close(sock)
+        self._refused = [e for e in self._refused if now < e[1]]
+
+    def service_actions(self):
+        # serve_forever() calls this once per poll interval.
+        self._reap()
+
+    def get_request(self):
+        # handle_request() (idle-timeout mode) has no service_actions().
+        self._reap()
+        return super().get_request()
+
+    def shutdown_request(self, request):
+        # A refused connection is closed later, by _reap().
+        if any(request is sock for sock, _ in self._refused):
+            return
+        super().shutdown_request(request)
+
     def verify_request(self, request, client_address):
         if self.allowed_peer_uid is None:
             return True
@@ -369,12 +464,14 @@ class _Server(HTTPServer):
             )
             _pid, uid, _gid = struct.unpack("iII", creds)
         except OSError:
+            self._refuse(request)
             return False
         if uid != self.allowed_peer_uid:
             sys.stderr.write(
                 f"flux-rest-server: rejected connection from uid {uid}; "
                 f"only uid {self.allowed_peer_uid} may connect\n"
             )
+            self._refuse(request)
             return False
         return True
 
