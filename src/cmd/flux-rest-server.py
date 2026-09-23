@@ -180,6 +180,10 @@ def _jobs_cancel(jobid, reason):
                 "error": f"job {jobid.f58plain} is already inactive, cannot cancel"
             }
         return 404, {"error": f"no such job: {jobid.f58plain}"}
+    except PermissionError as err:
+        # If the requesting user doesn't own the job, return a client
+        # error instead of treating it as a broker problem.
+        return 403, {"error": str(err)}
 
     return 202, {"id": jobid.f58plain, "status": "cancel requested"}
 
