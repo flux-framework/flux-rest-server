@@ -195,6 +195,19 @@ class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_NAME
     verbose = False
 
+    # Per-connection socket timeout. Without it a client that connects and
+    # never completes a request blocks handle_one_request() in
+    # rfile.readline() forever, and this single-threaded server silently stops
+    # answering everyone else. StreamRequestHandler.setup() applies it with
+    # settimeout(), and handle_one_request() catches the resulting
+    # TimeoutError, logs, and closes the connection.
+    #
+    # It bounds only how long a client may take to send or receive; no timer
+    # runs while a route is off waiting on Flux, so a slow RPC does not trip
+    # it. N.B. unrelated to _Server.timeout, which serve() uses for
+    # --idle-timeout: same attribute name, different object, different meaning.
+    timeout = 30
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         route = ROUTES.get(path)
@@ -335,6 +348,13 @@ class Handler(BaseHTTPRequestHandler):
 _REFUSE_LINGER = 1.0  # seconds held before the deferred close
 _REFUSE_MAX = 16  # refused connections held at once
 
+# On SIGTERM or SIGINT an in-flight request is allowed to finish rather than
+# having its response truncated; see _Server._stop(). This bounds that wait,
+# which is otherwise unbounded: Handler.timeout is None, so a client that
+# connects and never sends a request parks the handler in rfile.readline()
+# indefinitely.
+_STOP_GRACE = 5.0  # seconds an in-flight request is given to finish
+
 
 def _close(sock):
     try:
@@ -383,33 +403,95 @@ class _Server(HTTPServer):
     allowed_peer_uid = None
     idle_timeout = None
     _idle = False
+    _stopping = False  # SIGTERM or SIGINT has been received
+    _in_request = False  # a request is being served right now
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._refused = []  # [(socket, deadline)] awaiting a deferred close
 
     def handle_timeout(self):
-        self._idle = True
+        # handle_request() waited out its timeout. A pending refusal means
+        # _serve_timeout() shortened that wait to service a deferred close,
+        # not that the server has gone idle.
+        if self._refused:
+            self._reap()
+        else:
+            self._idle = True
+
+    def _stop(self, _signum, _frame):
+        """Stop the serve loop on SIGTERM/SIGINT, without truncating a response.
+
+        A signal handler runs on the main thread between bytecodes, so raising
+        from here while a response is being written unwinds out of
+        wfile.write() and leaves the client with a partial body (issue #27).
+        Raise only when no request is in flight -- which is also the only way
+        to break out of a blocking select() -- and otherwise just record that
+        the loop is to stop, which it does once the request has been answered.
+
+        That wait is bounded by an alarm, since an unbounded one would be a
+        hang of its own (see _STOP_GRACE). SIGALRM lands back here with
+        _stopping already set and so takes the raising path; so does a second
+        SIGTERM, which lets an impatient sender insist.
+        """
+        repeat = self._stopping
+        self._stopping = True
+        if repeat or not self._in_request:
+            raise KeyboardInterrupt
+        signal.setitimer(signal.ITIMER_REAL, _STOP_GRACE)
+
+    def process_request(self, request, client_address):
+        # Delimit the window in which _stop() must not raise. It deliberately
+        # does not cover get_request()/verify_request(): an interrupt there may
+        # still cut short the 403 from _refuse(), which is best effort anyway.
+        self._in_request = True
+        try:
+            super().process_request(request, client_address)
+        finally:
+            self._in_request = False
+
+    def _serve_timeout(self):
+        """How long handle_request() may block: the idle timeout, capped so a
+        refused connection is not held past its linger.
+
+        Without the cap, _reap() would next run only when another client
+        happens to arrive, which may be never.
+        """
+        if not self._refused:
+            return self.idle_timeout
+        linger = max(0.0, self._refused[0][1] - time.monotonic())
+        if self.idle_timeout is None:
+            return linger
+        return min(self.idle_timeout, linger)
 
     def serve(self):
-        """Serve requests until interrupted, or (if idle_timeout is set) until
+        """Serve requests until signalled, or (if idle_timeout is set) until
         idle_timeout seconds elapse with no new connection."""
+        signal.signal(signal.SIGTERM, self._stop)
+        signal.signal(signal.SIGALRM, self._stop)
+        # A non-interactive shell sets SIGINT to SIG_IGN for a background job,
+        # which without job control shares the terminal's process group. Honor
+        # an inherited SIG_IGN rather than overriding it: an interactive Ctrl-C
+        # should not stop a server someone deliberately put in the background.
+        if signal.getsignal(signal.SIGINT) != signal.SIG_IGN:
+            signal.signal(signal.SIGINT, self._stop)
 
-        # Terminate on SIGTERM by raising KeyboardInterrupt
-        def _terminate(_signum, _frame):
-            raise KeyboardInterrupt
-
-        signal.signal(signal.SIGTERM, _terminate)
-
-        if self.idle_timeout is None:
-            self.serve_forever()
-            return
-        self.timeout = self.idle_timeout
-        while not self._idle:
-            self.handle_request()
-        sys.stderr.write(
-            f"flux-rest-server: no connection for {self.idle_timeout}s, exiting\n"
-        )
+        # Drive handle_request() rather than serve_forever(), which ignores
+        # self.timeout: one loop covers both modes, and the stop flag is
+        # tested between requests, never during one. A timeout of None simply
+        # blocks in select() until a connection or a signal arrives.
+        try:
+            while not self._stopping and not self._idle:
+                self.timeout = self._serve_timeout()
+                self.handle_request()
+            if self._idle:
+                sys.stderr.write(
+                    "flux-rest-server: no connection for "
+                    f"{self.idle_timeout}s, exiting\n"
+                )
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            self.server_close()
 
     def _refuse(self, request):
         """Answer 403, then leave the connection for _reap() to close.
@@ -445,11 +527,13 @@ class _Server(HTTPServer):
         self._refused = [e for e in self._refused if now < e[1]]
 
     def service_actions(self):
-        # serve_forever() calls this once per poll interval.
+        # Only on the serve_forever() path, which serve() no longer uses; kept
+        # for anyone driving this server with the stdlib loop instead.
         self._reap()
 
     def get_request(self):
-        # handle_request() (idle-timeout mode) has no service_actions().
+        # handle_request() has no service_actions(); the other half of the
+        # reaping is handle_timeout(), for when no connection arrives at all.
         self._reap()
         return super().get_request()
 
