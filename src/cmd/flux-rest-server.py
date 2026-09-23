@@ -191,6 +191,32 @@ def _jobs_cancel(jobid, reason):
 DELETE_JOB_ROUTE = _jobs_cancel  # DELETE /jobs/<id>
 
 
+def _jobs_state(jobid):
+    """GET /api/v1/jobs/<id>: full job info.
+
+    Returns everything job_list_id(attrs=["all"]) provides. "id" is
+    overridden to the f58plain form, and the redundant "jobid" key
+    (raw int under "id", fancy-Unicode F58 under "jobid" in the
+    unmodified dict) is dropped.
+    """
+    h = _flux()
+    try:
+        info = flux.job.list.job_list_id(h, jobid, attrs=["all"]).get_jobinfo()
+    except FileNotFoundError:
+        return 404, {"error": f"no such job: {jobid.f58plain}"}
+
+    body = info.to_dict()
+    # Some JSON parsers can't handle a raw job id at full precision
+    # (flux-core#6171), so we use the f58plain string instead, and
+    # drop the now-redundant "jobid" key.
+    body["id"] = jobid.f58plain
+    body.pop("jobid", None)
+    return 200, body
+
+
+JOB_ROUTE = _jobs_state  # GET /jobs/<id>
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = SERVER_NAME
     verbose = False
@@ -212,7 +238,22 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         route = ROUTES.get(path)
         if route is None:
-            self._send(404, {"error": "not found", "path": path})
+            try:
+                jobid = _parse_job_path(path)
+            except ValueError as err:
+                self._send(400, {"error": str(err)})
+                return
+            if jobid is None:
+                self._send(404, {"error": "not found", "path": path})
+                return
+            try:
+                status, body = JOB_ROUTE(jobid)
+            except OSError as err:  # Flux not reachable
+                status, body = 503, {"error": "flux unavailable", "detail": str(err)}
+            except Exception as err:
+                self.log_error("unhandled exception in %s: %s", path, err)
+                status, body = 500, {"error": "internal error"}
+            self._send(status, body)
             return
         try:
             status, body = route()

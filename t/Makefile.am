@@ -16,6 +16,7 @@ TESTS = \
 	t1002-job-submit.t \
 	t1003-openapi.t \
 	t1004-jobs-cancel.t \
+	t1005-jobs-state.t \
 	t1006-shutdown.t \
 	t1007-timeout.t
 
