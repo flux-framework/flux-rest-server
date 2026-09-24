@@ -31,7 +31,8 @@ TESTS = \
 #  Keeping them out of TESTS rather than gating them on an environment
 #  variable means they can never silently skip -- if you asked for them and the
 #  environment is wrong, they fail.
-SYSTEM_TESTS =
+SYSTEM_TESTS = \
+	t2000-system-activation.t
 
 #  TEST_EXTENSIONS gives automake a generic .t.log rule, so overriding TESTS on
 #  the command line works for scripts that are not in TESTS.
