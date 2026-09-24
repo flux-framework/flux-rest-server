@@ -76,9 +76,16 @@ class EnsureHandler(BaseHTTPRequestHandler):
 
         try:
             # Start the user's socket unit (idempotent - no-op if already started)
+            #
+            # N.B. stdout=/stderr=PIPE rather than capture_output=True: systemd
+            # runs this script directly, so its #!/usr/bin/python3 shebang picks
+            # the system interpreter, which is 3.6 on el8.  capture_output
+            # arrived in 3.7, and the resulting TypeError would be swallowed by
+            # the except below and reported as a 500.
             result = subprocess.run(
                 ["systemctl", "start", unit_name],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 timeout=10,
             )
 
