@@ -1,2 +1,6 @@
 [tool.ruff]
-target-version = "py38"
+# The code runs under flux-core's interpreter, which is 3.6 on el8; see the
+# AM_PATH_PYTHON comment in configure.ac.  py37 is the oldest ruff accepts, so
+# it will not catch every 3.6 incompatibility -- the el8 CI rows are what
+# actually enforce that.
+target-version = "py37"
