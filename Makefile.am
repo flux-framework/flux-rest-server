@@ -18,6 +18,14 @@ endif
 deb: debian scripts/debbuild.sh
 	@$(top_srcdir)/scripts/debbuild.sh $(abs_top_srcdir)
 
+#  End-to-end tests against a Flux system instance.  These are not part of
+#  `make check`: they require an installed flux-rest-server (units, polkit,
+#  nginx) and a running system instance.  See src/test/docker/docker-run-system.sh,
+#  which boots a container providing both and then runs this target.
+check-system:
+	$(MAKE) $(AM_MAKEFLAGS) -C t check-system
+.PHONY: check-system
+
 clean-local:
 	@rm -rf debbuild
 
