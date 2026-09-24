@@ -19,7 +19,14 @@ server {
 
     location /api/ {
         # Reject anything that isn't a plain username before using it in a path.
-        if ($remote_user !~ "^[a-z_][a-z0-9_-]*$") { return 403; }
+        #
+        # The empty string has to be allowed through here.  "if" runs in the
+        # rewrite phase, before the auth module (access phase) has set
+        # $remote_user, so an unauthenticated request reaches this test with
+        # $remote_user empty -- and returning 403 there would swallow the 401
+        # challenge that tells the client to authenticate.  Letting "" fall
+        # through costs nothing: the auth module rejects it moments later.
+        if ($remote_user !~ "^$|^[a-z_][a-z0-9_-]*$") { return 403; }
 
         auth_request /_ensure;                       # bring the user's socket up
         set $sock /run/flux-rest-server/$remote_user.sock;

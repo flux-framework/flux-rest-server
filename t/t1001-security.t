@@ -64,4 +64,14 @@ test_expect_success OTHERUSER \
 	grep "socket activation" guard.err
 '
 
+# The SO_PEERCRED check above is enabled only for an AF_UNIX server, so a
+# socket-activated unix socket misdetected as AF_INET is served with no uid
+# check at all.  That is exactly what happens on Python 3.6, where
+# socket.socket(fileno=fd) assumes AF_INET rather than reading SO_DOMAIN.
+# Covered here rather than in t2000 so it is caught without a system instance.
+test_expect_success 'an inherited socket keeps its address family' '
+	flux python "${SHARNESS_TEST_SRCDIR}/scripts/listen_socket_family.py" \
+	    "${SHARNESS_TEST_SRCDIR}/../src/cmd/flux-rest-server.py"
+'
+
 test_done

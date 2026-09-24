@@ -111,3 +111,67 @@ jobs:
     - name: annotate errors
       if: failure() || cancelled()
       run: src/test/checks-annotate.sh
+
+  # End-to-end test against a real Flux *system* instance: nginx -> the _ensure
+  # helper -> polkit -> systemd socket activation -> per-user setuid -> guest
+  # access to the instance.  None of that is reachable from `make check`, which
+  # runs the server against a session instance over its own 0600 socket.
+  #
+  # Separate from ci-checks: it shares no configuration with that matrix and
+  # needs a systemd container under podman rather than docker.
+  system:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+        - name: "el8"
+          image: "el8"
+        - name: "el10"
+          image: "el10"
+        # The system tests are the only thing that exercises the _ensure
+        # helper and the socket-activation path, so measure them.  Uploaded
+        # under its own codecov flag, as flux-core does for its system build.
+        - name: "el10, coverage"
+          image: "el10"
+          coverage: true
+      fail-fast: false
+    name: system instance (${{ matrix.name }})
+    env:
+      FLUX_TEST_TIMEOUT: 300
+      FLUX_TESTS_LOGFILE: t
+      TAP_DRIVER_QUIET: 1
+      COVERAGE: ${{ matrix.coverage && 't' || '' }}
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+
+    # The container runs systemd, which needs PAM (logind, `sudo`) to work
+    # inside it; the host's AppArmor profiles block that.  Done here rather
+    # than in the test script so that the one thing CI changes about the host
+    # is visible, and so a developer's machine is never modified.
+    - name: relax host AppArmor for container systemd
+      run: |
+        sudo apparmor_parser -R /etc/apparmor.d/unix-chkpwd || true
+        sudo apparmor_parser -R /etc/apparmor.d/sudo || true
+
+    - name: run system tests
+      run: >
+        ./src/test/docker/docker-run-system.sh
+        -j $(nproc)
+        -i fluxrm/flux-core:${{ matrix.image }}
+
+    - name: coverage report
+      if: success() && matrix.coverage
+      uses: codecov/codecov-action@v7.0.0
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        flags: ci-system
+
+    - name: annotate errors
+      if: failure() || cancelled()
+      run: src/test/checks-annotate.sh

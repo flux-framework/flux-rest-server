@@ -71,6 +71,12 @@ curl http://localhost:8080/api/v1/        | jq
 
 Add `--verbose` to log each request to stderr.
 
+## End-to-end system tests
+
+`make check` cannot test system mode, which needs an installed package and a
+Flux system instance. Those tests run in a container instead — see
+[t/README.md](t/README.md).
+
 ## System mode (nginx + systemd + polkit)
 
 For production deployments, `flux-rest-server` is designed to run as a per-user service behind an nginx reverse proxy. The architecture provides:

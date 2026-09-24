@@ -29,6 +29,11 @@ debbuild/
 
 # Tests
 .pytest_cache/
+t/*.log
+t/*.trs
+t/test-suite.log
+t/test-results/
+t/trash-directory.*
 
 # Coverage
 .coverage
@@ -36,6 +41,7 @@ debbuild/
 coverage.rc
 coverage.xml
 coverage-site/
+system-coverage/
 htmlcov/
 
 # Editor files

@@ -9,7 +9,14 @@ AM_INIT_AUTOMAKE([foreign])
 AM_SILENT_RULES([yes])
 
 AC_PROG_INSTALL
-AM_PATH_PYTHON([3.8])
+# Both scripts run under the interpreter flux-core was built with: flux(1)
+# execs flux-rest-server.py under its compiled-in PYTHON_INTERPRETER, which is
+# also the only interpreter the flux bindings are importable from, and the
+# _ensure helper runs under the system python3 named in its shebang.  Neither
+# is $(PYTHON).  So this must be the oldest interpreter flux-core ships on --
+# 3.6 on el8 -- or configure accepts a version the code will never see, and
+# 3.7+ features pass the build and fail at runtime.
+AM_PATH_PYTHON([3.6])
 
 AX_FLUX_CORE
 

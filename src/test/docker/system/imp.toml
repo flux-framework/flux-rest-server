@@ -1,0 +1,6 @@
+#  Allow the flux instance owner to launch jobs as other users through the
+#  IMP, and only via the real flux-shell.  Same policy as flux-core's
+#  src/test/docker/fluxorama/imp.toml.
+[exec]
+allowed-users = [ "flux" ]
+allowed-shells = [ "/usr/libexec/flux/flux-shell" ]
