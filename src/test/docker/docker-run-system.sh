@@ -128,7 +128,7 @@ checks_group_end
 #  they are actually set.  (A wall of `-e VAR=$VAR` passes empty strings for
 #  unset variables and drifts out of sync with the rest of the CI scripts.)
 env_args=(-e "HOME=/home/$USER")
-for var in JOBS USER PROJECT CI TAP_DRIVER_QUIET \
+for var in JOBS USER PROJECT CI TAP_DRIVER_QUIET COVERAGE \
            FLUX_TEST_TIMEOUT FLUX_TESTS_LOGFILE \
            debug verbose chain_lint; do
     if test -n "${!var}"; then

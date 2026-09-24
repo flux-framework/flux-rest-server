@@ -41,6 +41,7 @@ t/trash-directory.*
 coverage.rc
 coverage.xml
 coverage-site/
+system-coverage/
 htmlcov/
 
 # Editor files
