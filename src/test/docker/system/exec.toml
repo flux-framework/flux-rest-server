@@ -1,0 +1,4 @@
+#  Launch jobs via the IMP, so they run as the submitting user.  This is what
+#  makes the per-user job-ownership assertions in t/t2*.t meaningful.
+[exec]
+imp = "/usr/libexec/flux/flux-imp"

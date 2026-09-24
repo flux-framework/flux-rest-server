@@ -1,0 +1,6 @@
+#  Let unprivileged users connect to the system instance as guests.  The whole
+#  point of flux-rest-server is to serve such users, so without this there is
+#  nothing to test.
+[access]
+allow-guest-user = true
+allow-root-owner = true
