@@ -44,6 +44,7 @@ check-system:
 EXTRA_DIST = \
 	$(TESTS) \
 	$(SYSTEM_TESTS) \
+	README.md \
 	sharness.sh \
 	sharness.d \
 	scripts
