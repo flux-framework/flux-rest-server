@@ -586,6 +586,25 @@ def server_on_socket(listen_sock):
 _LISTEN_FDS_START = 3
 
 
+def _listen_socket(fd):
+    """Wrap an inherited listening fd, preserving its address family.
+
+    socket.socket(fileno=fd) only infers the family from SO_DOMAIN on Python
+    3.7+; on 3.6 it silently assumes AF_INET.  Getting this wrong on a unix
+    socket is a security matter, not a cosmetic one: main() enables the
+    SO_PEERCRED check only for AF_UNIX, so a misdetected socket is served
+    without any uid check at all.  Read SO_DOMAIN and pass it explicitly.
+    """
+    probe = socket.socket(fileno=os.dup(fd))
+    try:
+        family = socket.AddressFamily(
+            probe.getsockopt(socket.SOL_SOCKET, socket.SO_DOMAIN)
+        )
+    finally:
+        probe.close()  # closes the dup, not fd
+    return socket.socket(family=family, fileno=fd)
+
+
 def _socket_activated():
     return (
         os.environ.get("LISTEN_PID") == str(os.getpid())
@@ -671,8 +690,7 @@ def main():
 
     try:
         if _socket_activated():
-            listen_sock = socket.socket(fileno=_LISTEN_FDS_START)
-            srv = server_on_socket(listen_sock)
+            srv = server_on_socket(_listen_socket(_LISTEN_FDS_START))
         elif args.port is not None:
             srv = server_on_address(args.host, args.port)
         else:

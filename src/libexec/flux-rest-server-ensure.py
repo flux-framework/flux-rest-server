@@ -134,8 +134,21 @@ def main():
         )
         sys.exit(1)
 
-    # Inherit the listening socket from systemd
-    listen_sock = socket.socket(fileno=_LISTEN_FDS_START)
+    # Inherit the listening socket from systemd.
+    #
+    # Pass the address family explicitly: socket.socket(fileno=fd) only infers
+    # it from SO_DOMAIN on Python 3.7+, and assumes AF_INET on 3.6 (el8).  The
+    # SO_PEERCRED check in _PeerServer is unconditional, so a wrong family does
+    # not weaken it here, but it would leave address_family and the socket
+    # disagreeing.
+    probe = socket.socket(fileno=os.dup(_LISTEN_FDS_START))
+    try:
+        family = socket.AddressFamily(
+            probe.getsockopt(socket.SOL_SOCKET, socket.SO_DOMAIN)
+        )
+    finally:
+        probe.close()  # closes the dup, not the inherited fd
+    listen_sock = socket.socket(family=family, fileno=_LISTEN_FDS_START)
     srv = _PeerServer(("", 0), EnsureHandler, bind_and_activate=False)
     try:
         srv.socket.close()
