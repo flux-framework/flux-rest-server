@@ -1,0 +1,20 @@
+[Unit]
+Description=Minimal test Flux instance for flux-rest-server system-mode testing
+After=network.target
+
+[Service]
+Type=simple
+# The broker's rundir must exist with 755 (not the default 700) before
+# it starts, or guest connections are refused at the filesystem level
+# regardless of allow-guest-user - a socket can be world-writable and
+# still unreachable if a parent directory blocks traversal.
+ExecStartPre=/bin/mkdir -p -m 755 /run/flux
+# -Sbroker.rc2_none is required: without it, the broker defaults to
+# launching an interactive shell as its "initial program", which fails
+# immediately under systemd with "stdin is not a tty". This flag tells
+# rc2 to run nothing, which is the correct behavior for a system instance.
+ExecStart=/usr/bin/flux broker --config-path=/etc/flux/system/conf.d -Srundir=/run/flux -Sstatedir=/var/lib/flux -Slocal-uri=local:///run/flux/local -Sbroker.rc2_none -Sbroker.quorum=1
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
