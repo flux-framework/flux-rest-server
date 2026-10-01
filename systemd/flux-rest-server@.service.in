@@ -13,5 +13,7 @@ User=%i
 # --idle-timeout reaps the per-user server after this long (a Flux standard
 # duration) with no connection; systemd re-activates it on the next request.
 # Raise it, or use "infinity" to disable.
-ExecStart=/usr/bin/flux rest-server --allow-user=@WEB_USER@ --idle-timeout=5m
+# @FLUX@ is the flux(1) that configure found via pkg-config, so a flux-core
+# installed outside /usr works without editing this unit.
+ExecStart=@FLUX@ rest-server --allow-user=@WEB_USER@ --idle-timeout=5m
 NoNewPrivileges=true

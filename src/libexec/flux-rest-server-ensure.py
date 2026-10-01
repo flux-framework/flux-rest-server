@@ -76,9 +76,16 @@ class EnsureHandler(BaseHTTPRequestHandler):
 
         try:
             # Start the user's socket unit (idempotent - no-op if already started)
+            #
+            # N.B. stdout=/stderr=PIPE rather than capture_output=True: systemd
+            # runs this script directly, so its #!/usr/bin/python3 shebang picks
+            # the system interpreter, which is 3.6 on el8.  capture_output
+            # arrived in 3.7, and the resulting TypeError would be swallowed by
+            # the except below and reported as a 500.
             result = subprocess.run(
                 ["systemctl", "start", unit_name],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 timeout=10,
             )
 
@@ -127,8 +134,21 @@ def main():
         )
         sys.exit(1)
 
-    # Inherit the listening socket from systemd
-    listen_sock = socket.socket(fileno=_LISTEN_FDS_START)
+    # Inherit the listening socket from systemd.
+    #
+    # Pass the address family explicitly: socket.socket(fileno=fd) only infers
+    # it from SO_DOMAIN on Python 3.7+, and assumes AF_INET on 3.6 (el8).  The
+    # SO_PEERCRED check in _PeerServer is unconditional, so a wrong family does
+    # not weaken it here, but it would leave address_family and the socket
+    # disagreeing.
+    probe = socket.socket(fileno=os.dup(_LISTEN_FDS_START))
+    try:
+        family = socket.AddressFamily(
+            probe.getsockopt(socket.SOL_SOCKET, socket.SO_DOMAIN)
+        )
+    finally:
+        probe.close()  # closes the dup, not the inherited fd
+    listen_sock = socket.socket(family=family, fileno=_LISTEN_FDS_START)
     srv = _PeerServer(("", 0), EnsureHandler, bind_and_activate=False)
     try:
         srv.socket.close()
