@@ -25,6 +25,25 @@ The API server, executing as the end user, fits comfortably within Flux's
 security model.  Critically, running as the user, it has the capability
 to sign HTTP job requests via MUNGE using the user's credentials.
 
+## Relationship to flux-restful-api
+
+[flux-restful-api](https://github.com/flux-framework/flux-restful-api) is a
+separate Flux project that also fronts Flux with HTTP, and the two are easy to
+confuse.  It was written for converged computing and cloud environments, where
+Flux comes up in a container with no site identity infrastructure to lean on,
+so it brings its own: a multi-tenant service with a user database, JWTs it
+issues itself, and `sudo` to submit as the authenticated user.  It has a larger
+API surface than we do today, plus a web UI.
+
+`flux-rest-server` targets production HPC clusters at sites that already
+authenticate users and have opinions about what may run privileged.  So we have
+no shared service and no authentication code of our own: nginx authenticates,
+`systemd` starts an unprivileged server *as* the user, and requests carry no
+tokens or user field because identity is settled before any HTTP is parsed.  We
+depend only on `flux-core` and the Python standard library, and are growing the
+API deliberately -- behind an [OpenAPI contract](spec/v1/openapi.yaml) the
+testsuite validates -- to keep the security story small enough to audit.
+
 ## Build and Test
 
 This project uses autotools so the standard targets work:
