@@ -21,7 +21,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.1
     - name: Check Spelling
-      uses: crate-ci/typos@v1.50.2
+      uses: crate-ci/typos@v1.50.3
 
   python-format:
     name: code formatting
@@ -103,7 +103,7 @@ jobs:
 
     - name: coverage report
       if: success() && matrix.coverage
-      uses: codecov/codecov-action@v7.0.0
+      uses: codecov/codecov-action@v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
@@ -166,7 +166,7 @@ jobs:
 
     - name: coverage report
       if: success() && matrix.coverage
-      uses: codecov/codecov-action@v7.0.0
+      uses: codecov/codecov-action@v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
