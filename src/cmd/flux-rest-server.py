@@ -20,6 +20,7 @@ import pwd
 import signal
 import socket
 import struct
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -77,6 +78,58 @@ ROUTES = {
 }
 
 
+LOGIN_SHELL_TIMEOUT = 30  # seconds; matches Handler.timeout's value
+
+
+def _login_shell_environment(pw):
+    """Recreate pw's real login environment by actually spawning one.
+
+    The small, hardcoded default below has no site customization: no
+    modules, no profile-script PATH/LD_LIBRARY_PATH additions. This
+    sources /etc/profile and ~/.profile directly, rather than relying
+    on the shell's own -l/-i login-shell detection, which varies by
+    shell (bash reads .bash_profile, dash and most others read only
+    .profile, zsh reads .zprofile) and can silently do nothing for the
+    wrong shell.
+
+    Starts from a minimal environment, not this server process's own, so
+    the result reflects only what the user's login actually sets up.
+
+    Raises OSError (timeout or nonzero exit) on failure; the caller maps
+    this to a response, same as other "couldn't fulfill this" cases.
+    """
+    minimal_env = {
+        "HOME": pw.pw_dir,
+        "USER": pw.pw_name,
+        "LOGNAME": pw.pw_name,
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    }
+    script = (
+        "[ -f /etc/profile ] && . /etc/profile; "
+        "[ -f ~/.profile ] && . ~/.profile; "
+        "env -0"
+    )
+    try:
+        result = subprocess.run(
+            [pw.pw_shell, "-c", script],
+            env=minimal_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=LOGIN_SHELL_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as err:
+        raise OSError(f"login shell timed out after {LOGIN_SHELL_TIMEOUT}s") from err
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip()
+        raise OSError(f"login shell exited {result.returncode}: {detail}")
+
+    pairs = result.stdout.split(b"\0")
+    return {
+        k.decode(): v.decode(errors="replace")
+        for k, v in (p.split(b"=", 1) for p in pairs if p)
+    }
+
+
 def _jobs_submit(body):
     """Submit a job from a structured JSON body (basic mode)."""
     command = body.get("command")
@@ -87,13 +140,21 @@ def _jobs_submit(body):
     ):
         return 400, {"error": "'command' must be a non-empty list of strings"}
 
+    # login_shell is handled here, not passed to from_command(), which
+    # would raise TypeError on an unrecognized kwarg.
+    login_shell = body.get("login_shell", False)
+
     # Pass every other field straight through as a from_command() kwarg.
     # None is filtered out so an unspecified/null field still falls back to
     # Flux's own default rather than overriding it with None explicitly
     # (e.g. num_tasks defaults to 1, not None). Anything JobspecV1 doesn't
     # recognize raises TypeError below, caught the same as other jobspec
     # errors -- no separate allowlist to keep in sync with from_command().
-    kwargs = {k: v for k, v in body.items() if k != "command" and v is not None}
+    kwargs = {
+        k: v
+        for k, v in body.items()
+        if k not in ("command", "login_shell") and v is not None
+    }
 
     # Without an explicit cwd/environment, from_command() would otherwise
     # inherit this server process's own -- not the submitting user's home
@@ -101,6 +162,11 @@ def _jobs_submit(body):
     # explicit "cwd"/"environment" in the request still overrides this.
     pw = pwd.getpwuid(os.getuid())
     kwargs.setdefault("cwd", pw.pw_dir)
+    if login_shell and "environment" not in kwargs:
+        try:
+            kwargs["environment"] = _login_shell_environment(pw)
+        except OSError as err:
+            return 503, {"error": f"could not build login shell environment: {err}"}
     kwargs.setdefault(
         "environment",
         {
