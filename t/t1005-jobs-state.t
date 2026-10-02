@@ -94,6 +94,60 @@ test_expect_success 'a fancy (non-ASCII) F58 job id is accepted as input' '
 	test "$(jq -r .id fancy.out)" = "$jobid"
 '
 
+test_expect_success 'canceled job for attrs tests' '
+	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"sleep\", \"300\"]}" | jq -r .id) &&
+	flux job wait-event -t 10 $jobid start >/dev/null &&
+	flux cancel $jobid &&
+	flux job wait-event -t 10 $jobid clean >/dev/null &&
+	echo $jobid >canceled.id
+'
+
+test_expect_success 'attrs returns only the requested fields, plus id' '
+	jobid=$(cat canceled.id) &&
+	$CURL -s "http://localhost/api/v1/jobs/$jobid?attrs=state,result" \
+	    >subset.out &&
+	test "$(jq -c "keys" subset.out)" = "[\"id\",\"result\",\"state\"]" &&
+	test "$(jq -r .id subset.out)" = "$jobid" &&
+	test "$(jq -r .result subset.out)" = "CANCELED"
+'
+
+test_expect_success 'any exception attr returns the full exception object' '
+	jobid=$(cat canceled.id) &&
+	$CURL -s "http://localhost/api/v1/jobs/$jobid?attrs=exception_type" \
+	    >exc.out &&
+	test "$(jq -c "keys" exc.out)" = "[\"exception\",\"id\"]" &&
+	test "$(jq -r .exception.occurred exc.out)" = "true" &&
+	test "$(jq -r .exception.type exc.out)" = "cancel"
+'
+
+test_expect_success 'an unknown attr returns 400, not 503' '
+	jobid=$(cat canceled.id) &&
+	$CURL -s -o badattr.out -w "%{http_code}" \
+	    "http://localhost/api/v1/jobs/$jobid?attrs=state,bogus" \
+	    >badattr.code &&
+	test "$(cat badattr.code)" = "400" &&
+	jq -r .error badattr.out | grep "bogus"
+'
+
+test_expect_success 'ranks and nodelist are omitted for a pending job' '
+	jobid=$(flux submit --urgency=0 true) &&
+	$CURL -s "http://localhost/api/v1/jobs/$jobid?attrs=ranks,nodelist" \
+	    >pending.out &&
+	test "$(jq -c "keys" pending.out)" = "[\"id\"]" &&
+	flux cancel $jobid
+'
+
+test_expect_success 'attrs returns duration and expiration for a time-limited job' '
+	jobid=$(flux submit -t 60s true) &&
+	flux job wait-event -t 10 $jobid clean >/dev/null &&
+	$CURL -s "http://localhost/api/v1/jobs/$jobid?attrs=duration,expiration" \
+	    >limit.out &&
+	test "$(jq -c "keys" limit.out)" = "[\"duration\",\"expiration\",\"id\"]" &&
+	test "$(jq ".duration == 60" limit.out)" = "true"
+'
+
 test_expect_success 'nonexistent job returns 404' '
 	$CURL -s -o missing.out -w "%{http_code}" \
 	    http://localhost/api/v1/jobs/999999999999 >missing.code &&
