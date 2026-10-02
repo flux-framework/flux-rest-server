@@ -100,6 +100,14 @@ paths:
         is a post-processed version of the raw RFC 43 job-list payload:
         state and result are strings rather than integer bitmasks, and
         unset fields are omitted rather than sent empty.
+      parameters:
+        - name: attrs
+          in: query
+          required: false
+          schema: { type: string }
+          description: >
+            Comma-separated RFC 43 job attributes to return, e.g.
+            "state,result". Defaults to "all". The id is always returned.
       responses:
         "200":
           description: Job info
@@ -107,7 +115,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, state]
+                required: [id]
                 properties:
                   id: { $ref: "#/components/schemas/JobId" }
                   state: { type: string }
