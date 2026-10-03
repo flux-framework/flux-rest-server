@@ -196,8 +196,9 @@ components:
       type: object
       required: [command]
       description: >
-        Basic-mode submission. `command` is required; every other field is
-        passed through to JobspecV1.from_command() as a kwarg, so an
+        Basic-mode submission. `command` is required. `login_shell` is
+        handled separately (see its own description); every other field
+        is passed through to JobspecV1.from_command() as a kwarg, so an
         unrecognized field is rejected with 400 rather than ignored.
       properties:
         command:
@@ -212,6 +213,16 @@ components:
         environment:
           type: object
           additionalProperties: { type: string }
+        login_shell:
+          type: boolean
+          default: false
+          description: >
+            If true and environment is not also given, recreate the
+            submitting user's real login environment (profile scripts,
+            modules) by actually spawning their shell as a login shell,
+            instead of the small fixed default (HOME/USER/LOGNAME/PATH/
+            SHELL only). Adds real latency to the request; fails with 503
+            if the shell does not exit cleanly within 30s.
       additionalProperties: true
 
     Error:

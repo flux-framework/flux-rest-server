@@ -112,6 +112,54 @@ test_expect_success 'num_nodes is honored' '
 	grep -q "^1$" nnodes.out
 '
 
+test_expect_success 'login_shell=true picks up a real profile-script variable' '
+	real_home=$(python3 -c "import pwd, os; print(pwd.getpwuid(os.getuid()).pw_dir)") &&
+	( mv "$real_home/.bash_profile" "$real_home/.bash_profile.t1002bak" 2>/dev/null || true ) &&
+	test_when_finished "mv \"$real_home/.bash_profile.t1002bak\" \"$real_home/.bash_profile\" 2>/dev/null; rm -f \"$real_home/.bash_profile.t1002bak\"" &&
+	printf "[ -f ~/.bashrc ] && . ~/.bashrc\n" >"$real_home/.bash_profile" &&
+	echo "export MY_PROFILE_VAR=from_bashrc" >>"$real_home/.bashrc" &&
+	test_when_finished "sed -i \"/MY_PROFILE_VAR/d\" \"$real_home/.bashrc\"" &&
+	$CURL -s -o loginshell.out -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"env\"], \"login_shell\": true}" &&
+	id=$(jq -r ".id" loginshell.out) &&
+	flux job attach $id >loginshell.stdout &&
+	grep -q "^MY_PROFILE_VAR=from_bashrc$" loginshell.stdout
+'
+
+test_expect_success 'without login_shell, that same profile variable is absent' '
+	real_home=$(python3 -c "import pwd, os; print(pwd.getpwuid(os.getuid()).pw_dir)") &&
+	echo "export MY_PROFILE_VAR=from_bashrc" >>"$real_home/.bashrc" &&
+	test_when_finished "sed -i \"/MY_PROFILE_VAR/d\" \"$real_home/.bashrc\"" &&
+	$CURL -s -o nologinshell.out -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"env\"]}" &&
+	id=$(jq -r ".id" nologinshell.out) &&
+	flux job attach $id >nologinshell.stdout &&
+	! grep -q MY_PROFILE_VAR nologinshell.stdout
+'
+
+test_expect_success 'an explicit environment overrides login_shell' '
+	$CURL -s -o override.out -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"env\"], \"login_shell\": true, \"environment\": {\"EXPLICIT_WINS\": \"yes\"}}" &&
+	id=$(jq -r ".id" override.out) &&
+	flux job attach $id >override.stdout &&
+	grep -q "^EXPLICIT_WINS=yes$" override.stdout
+'
+
+test_expect_success 'login_shell=true with a broken profile script returns 503' '
+	real_home=$(python3 -c "import pwd, os; print(pwd.getpwuid(os.getuid()).pw_dir)") &&
+	( mv "$real_home/.bash_profile" "$real_home/.bash_profile.t1002bak" 2>/dev/null || true ) &&
+	test_when_finished "mv \"$real_home/.bash_profile.t1002bak\" \"$real_home/.bash_profile\" 2>/dev/null; rm -f \"$real_home/.bash_profile.t1002bak\"" &&
+	printf "exit 1\n" >"$real_home/.bash_profile" &&
+	$CURL -s -o broken.out -w "%{http_code}" -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"true\"], \"login_shell\": true}" >broken.code &&
+	test "$(cat broken.code)" = "503" &&
+	jq -r .error broken.out | grep -q "login shell exited"
+'
+
 test_expect_success 'unknown field returns 400 instead of being ignored' '
 	$CURL -s -o unknownfield.out -w "%{http_code}" -X POST \
 	    http://localhost/api/v1/jobs \
