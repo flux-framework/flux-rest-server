@@ -90,6 +90,31 @@ curl http://localhost:8080/api/v1/        | jq
 
 Add `--verbose` to log each request to stderr.
 
+## Polling for job completion
+
+Submit returns right away; the job itself may still be pending or running.
+Poll `GET /jobs/<id>` until `state` is `INACTIVE` -- the only terminal state.
+While non-terminal, the response carries a `Retry-After` header suggesting
+how long to wait before the next poll:
+
+```sh
+id=$(curl -s -X POST http://localhost:8080/api/v1/jobs \
+    -H "Content-Type: application/json" \
+    -d '{"command": ["sleep", "5"]}' | jq -r .id)
+
+while true; do
+    resp=$(curl -s -D /tmp/hdr http://localhost:8080/api/v1/jobs/$id)
+    state=$(echo "$resp" | jq -r .state)
+    test "$state" = "INACTIVE" && break
+    sleep "$(grep -i '^Retry-After:' /tmp/hdr | tr -dc '0-9')"
+done
+
+echo "$resp" | jq '{state, result}'
+```
+
+`result`, `returncode`, `success`, and `waitstatus` only appear once a job
+reaches `INACTIVE`.
+
 ## End-to-end system tests
 
 `make check` cannot test system mode, which needs an installed package and a
