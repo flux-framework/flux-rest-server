@@ -192,8 +192,8 @@ def _jobs_cancel(jobid, reason):
 DELETE_JOB_ROUTE = _jobs_cancel  # DELETE /jobs/<id>
 
 
-def _jobs_state(jobid):
-    """GET /api/v1/jobs/<id>: full job info.
+def _jobs_state(jobid, attrs):
+    """GET /api/v1/jobs/<id>: job info, optionally a subset of fields.
 
     The job record as rendered by flux-core's JobInfo.to_dict(). This is
     a post-processed version of the raw RFC 43 job-list payload: state
@@ -201,13 +201,33 @@ def _jobs_state(jobid):
     fields are omitted rather than sent empty. "id" is overridden to
     the f58plain form, and the redundant "jobid" key is dropped.
     """
+    fetch = list(attrs)
+    if any(a.startswith("exception_") for a in attrs):
+        # to_dict() only builds "exception" correctly when all four
+        # exception_* attrs are fetched together.
+        exc = ["exception_occurred", "exception_type"]
+        exc += ["exception_severity", "exception_note"]
+        fetch += [a for a in exc if a not in fetch]
+
     h = _flux()
     try:
-        info = flux.job.list.job_list_id(h, jobid, attrs=["all"]).get_jobinfo()
+        info = flux.job.list.job_list_id(h, jobid, attrs=fetch).get_jobinfo()
     except FileNotFoundError:
         return 404, {"error": f"no such job: {jobid.f58plain}"}
+    except OSError as err:
+        if err.errno == errno.EINVAL:  # unknown attr
+            return 400, {"error": err.strerror}
+        raise
 
     body = info.to_dict()
+    if "all" not in attrs:
+        # to_dict() fills in fields that weren't requested with default
+        # values (e.g. exception.occurred=False), so keep only what was
+        # asked for. The four exception_* attrs come back as "exception".
+        wanted = set(attrs)
+        if any(a.startswith("exception_") for a in attrs):
+            wanted.add("exception")
+        body = {k: v for k, v in body.items() if k in wanted}
     # Some JSON parsers can't handle a raw job id at full precision
     # (flux-core#6171), so we use the f58plain string instead, and
     # drop the now-redundant "jobid" key.
@@ -248,7 +268,10 @@ class Handler(BaseHTTPRequestHandler):
             if jobid is None:
                 self._send(404, {"error": "not found", "path": path})
                 return
-            route = functools.partial(GET_JOB_ROUTE, jobid)
+            query = urllib.parse.urlsplit(self.path).query
+            attrs = urllib.parse.parse_qs(query).get("attrs", ["all"])[0]
+            attrs = [a for a in attrs.split(",") if a]
+            route = functools.partial(GET_JOB_ROUTE, jobid, attrs)
 
         try:
             status, body = route()
