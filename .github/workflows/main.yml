@@ -21,13 +21,13 @@ jobs:
     steps:
     - uses: actions/checkout@v7.0.1
     - name: Check Spelling
-      uses: crate-ci/typos@v1.50.3
+      uses: crate-ci/typos@v1.51.1
 
   python-format:
     name: code formatting
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/setup-python@v7.0.0
+    - uses: actions/setup-python@v7.1.0
       with:
         python-version: "3.10"
     - uses: actions/checkout@v7.0.1
@@ -43,7 +43,7 @@ jobs:
     name: validate openapi spec
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/setup-python@v7.0.0
+    - uses: actions/setup-python@v7.1.0
       with:
         python-version: "3.10"
     - uses: actions/checkout@v7.0.1
