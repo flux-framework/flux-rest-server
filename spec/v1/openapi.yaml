@@ -99,10 +99,21 @@ paths:
         The job record as rendered by flux-core's JobInfo.to_dict(). This
         is a post-processed version of the raw RFC 43 job-list payload:
         state and result are strings rather than integer bitmasks, and
-        unset fields are omitted rather than sent empty.
+        unset fields are omitted rather than sent empty. INACTIVE is the
+        only terminal state (RFC 21); result/returncode/success/waitstatus
+        appear only once a job reaches it.
       responses:
         "200":
-          description: Job info
+          description: >
+            Job info. While state is not INACTIVE, the response includes
+            a Retry-After header suggesting when to poll again; once
+            INACTIVE, no Retry-After header is sent, which is itself the
+            signal that polling is done.
+          headers:
+            Retry-After:
+              required: false
+              schema: { type: integer }
+              description: Seconds to wait before polling again. Absent once state is INACTIVE.
           content:
             application/json:
               schema:

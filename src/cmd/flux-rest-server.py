@@ -192,7 +192,7 @@ def _jobs_cancel(jobid, reason):
 DELETE_JOB_ROUTE = _jobs_cancel  # DELETE /jobs/<id>
 
 
-def _jobs_state(jobid):
+def _jobs_state(jobid, retry_after_seconds):
     """GET /api/v1/jobs/<id>: full job info.
 
     The job record as rendered by flux-core's JobInfo.to_dict(). This is
@@ -200,6 +200,11 @@ def _jobs_state(jobid):
     and result are strings rather than integer bitmasks, and unset
     fields are omitted rather than sent empty. "id" is overridden to
     the f58plain form, and the redundant "jobid" key is dropped.
+
+    INACTIVE is the only terminal state (RFC 21); while a job is in any
+    other state, the response carries a Retry-After header suggesting
+    when to poll again. Once INACTIVE, no Retry-After is sent at all --
+    that absence is itself the signal that polling is done.
     """
     h = _flux()
     try:
@@ -213,6 +218,9 @@ def _jobs_state(jobid):
     # drop the now-redundant "jobid" key.
     body["id"] = jobid.f58plain
     body.pop("jobid", None)
+    if body.get("state") != "INACTIVE":
+        headers = {"Retry-After": str(round(retry_after_seconds))}
+        return 200, body, headers
     return 200, body
 
 
@@ -236,6 +244,10 @@ class Handler(BaseHTTPRequestHandler):
     # --idle-timeout: same attribute name, different object, different meaning.
     timeout = 30
 
+    # Default Retry-After (seconds) on GET /jobs/<id> while non-terminal.
+    # Overridden by --retry-after.
+    retry_after_seconds = 5
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         route = ROUTES.get(path)
@@ -248,10 +260,14 @@ class Handler(BaseHTTPRequestHandler):
             if jobid is None:
                 self._send(404, {"error": "not found", "path": path})
                 return
-            route = functools.partial(GET_JOB_ROUTE, jobid)
+            route = functools.partial(GET_JOB_ROUTE, jobid, self.retry_after_seconds)
 
+        headers = None
         try:
-            status, body = route()
+            result = route()
+            # A route returns (status, body) or (status, body, headers).
+            status, body = result[0], result[1]
+            headers = result[2] if len(result) > 2 else None
         except OSError as err:  # Flux not reachable
             status, body = 503, {"error": "flux unavailable", "detail": str(err)}
         except Exception as err:
@@ -260,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
             # on the wire or a dropped connection.
             self.log_error("unhandled exception in %s: %s", path, err)
             status, body = 500, {"error": "internal error"}
-        self._send(status, body)
+        self._send(status, body, headers)
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
@@ -703,9 +719,20 @@ def main():
         "connection",
     )
     parser.add_argument(
+        "--retry-after",
+        type=_fsd,
+        metavar="FSD",
+        default=5,
+        help="suggest this duration via Retry-After on GET /jobs/<id> "
+        "while the job is non-terminal, e.g. 5s, 2s (default: 5s)",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="log each request to stderr"
     )
     args = parser.parse_args()
+
+    if args.retry_after <= 0:
+        parser.error("--retry-after must be a positive duration")
 
     if args.idle_timeout is not None:
         if args.idle_timeout == float("inf"):
@@ -714,6 +741,7 @@ def main():
             parser.error("--idle-timeout must be a positive duration")
 
     Handler.verbose = args.verbose
+    Handler.retry_after_seconds = args.retry_after
 
     if args.allow_user:
         try:

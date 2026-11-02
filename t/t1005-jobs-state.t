@@ -40,6 +40,26 @@ test_expect_success 'a running job returns 200 with id and state, no result yet'
 	flux cancel $jobid
 '
 
+test_expect_success 'a running job response includes a Retry-After header' '
+	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" \
+	    -d "{\"command\": [\"sleep\", \"300\"]}" | jq -r .id) &&
+	test_when_finished "flux cancel $jobid" &&
+	flux job wait-event -t 10 $jobid start >/dev/null &&
+	$CURL -s -D retryafter.hdr -o /dev/null \
+	    http://localhost/api/v1/jobs/$jobid &&
+	grep -iq "^Retry-After: 5" retryafter.hdr
+'
+
+test_expect_success 'a completed job response has no Retry-After header' '
+	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
+	    -H "Content-Type: application/json" -d "{\"command\": [\"true\"]}" | jq -r .id) &&
+	flux job wait-event -t 10 $jobid clean >/dev/null &&
+	$CURL -s -D noretryafter.hdr -o /dev/null \
+	    http://localhost/api/v1/jobs/$jobid &&
+	! grep -iq "^Retry-After:" noretryafter.hdr
+'
+
 test_expect_success 'a completed job includes result and other fields' '
 	jobid=$($CURL -s -X POST http://localhost/api/v1/jobs \
 	    -H "Content-Type: application/json" -d "{\"command\": [\"true\"]}" | jq -r .id) &&
